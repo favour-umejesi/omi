@@ -48,6 +48,7 @@ def create_subscription_checkout_session(uid: str, price_id: str):
                 },
             ],
             mode='subscription',
+            allow_promotion_codes=True,
             success_url=success_url,
             cancel_url=cancel_url,
         )
