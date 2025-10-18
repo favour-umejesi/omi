@@ -28,6 +28,10 @@ class CreateCheckoutRequest(BaseModel):
     price_id: str
 
 
+class ValidatePromotionCodeRequest(BaseModel):
+    promotion_code: str
+
+
 def _build_subscription_from_stripe_object(stripe_sub: dict) -> Subscription:
     """Builds a Subscription object from a Stripe Subscription object."""
     stripe_status = stripe_sub['status']
@@ -79,6 +83,15 @@ def create_checkout_session_endpoint(request: CreateCheckoutRequest, uid: str = 
     return {"url": session.url, "session_id": session.id}
 
 
+@router.post('/v1/payments/validate-promotion-code')
+def validate_promotion_code_endpoint(request: ValidatePromotionCodeRequest):
+    """Validate a promotion code before checkout."""
+    validation_result = stripe_utils.validate_promotion_code(request.promotion_code)
+    if not validation_result['valid']:
+        raise HTTPException(status_code=400, detail=validation_result['error'])
+    return validation_result
+
+
 @router.delete('/v1/payments/subscription')
 def cancel_subscription_endpoint(uid: str = Depends(auth.get_current_user_uid)):
     subscription = users_db.get_user_subscription(uid)
@@ -111,6 +124,11 @@ async def stripe_webhook(request: Request, stripe_signature: str = Header(None))
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         client_reference_id = session.get('client_reference_id')
+        
+        # Log promotion code usage if present
+        if session.get('total_details', {}).get('amount_discount', 0) > 0:
+            discount_amount = session['total_details']['amount_discount']
+            print(f"Promotion code applied: ${discount_amount} cents discount for session {session['id']}")
 
         # App payments for creators
         if session.get('metadata', {}).get('app_id'):
