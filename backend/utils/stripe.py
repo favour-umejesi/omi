@@ -34,7 +34,12 @@ def create_app_monthly_recurring_price(product_id: str, amount_in_cents: int, cu
 
 
 def create_subscription_checkout_session(uid: str, price_id: str):
-    """Create a Stripe Checkout session for a subscription."""
+    """Create a Stripe Checkout session for a subscription.
+    
+    The checkout session includes promotion code support, allowing users to enter
+    discount codes during the payment process. Promotion codes can be created
+    and managed in the Stripe Dashboard under Products > Coupons.
+    """
     try:
         success_url = urljoin(base_url, 'v1/payments/success?session_id={CHECKOUT_SESSION_ID}')
         cancel_url = urljoin(base_url, 'v1/payments/cancel')
@@ -48,9 +53,9 @@ def create_subscription_checkout_session(uid: str, price_id: str):
                 },
             ],
             mode='subscription',
-            allow_promotion_codes=True,
             success_url=success_url,
             cancel_url=cancel_url,
+            allow_promotion_codes=True,
         )
         return checkout_session
     except Exception as e:
@@ -84,6 +89,7 @@ def create_app_payment_link(price_id: str, app_id: str, stripe_acc_id: str):
         },
         subscription_data={'metadata': {'app_id': app_id}},
         metadata={'app_id': app_id},
+        allow_promotion_codes=True,
     )
     return payment_link
 
@@ -96,6 +102,31 @@ def parse_event(payload, sig_header):
 def parse_connect_event(payload, sig_header):
     """Parse the Stripe Connect event."""
     return stripe.Webhook.construct_event(payload, sig_header, connect_secret)
+
+
+def validate_promotion_code(promotion_code: str):
+    """Validate if a promotion code exists and is active in Stripe."""
+    try:
+        # Retrieve the promotion code from Stripe
+        promo_code = stripe.PromotionCode.retrieve(promotion_code)
+        
+        # Check if the promotion code is active
+        if promo_code.active:
+            return {
+                'valid': True,
+                'code': promo_code.code,
+                'coupon_id': promo_code.coupon.id,
+                'discount': promo_code.coupon.amount_off or promo_code.coupon.percent_off,
+                'discount_type': 'amount' if promo_code.coupon.amount_off else 'percent'
+            }
+        else:
+            return {'valid': False, 'error': 'Promotion code is not active'}
+            
+    except stripe.error.InvalidRequestError:
+        return {'valid': False, 'error': 'Promotion code does not exist'}
+    except Exception as e:
+        print(f"Error validating promotion code: {e}")
+        return {'valid': False, 'error': 'Error validating promotion code'}
 
 
 def create_connect_account(uid: str, country: str):
